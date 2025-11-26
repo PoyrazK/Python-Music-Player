@@ -104,8 +104,6 @@ class MusicPlayer:
         # Clamp elapsed time
         elapsed = min(elapsed, self.current_song_length)
         
-        # Create progress bar string manually or use rich's Progress
-        # For simplicity in a panel, we can construct a visual bar
         width = 100
         if self.current_song_length > 0:
             percent = elapsed / self.current_song_length
@@ -126,8 +124,19 @@ class MusicPlayer:
     def is_data_ready(self):
         return select.select([sys.stdin], [], [], 0) == ([sys.stdin], [], [])
 
+    def play_next_song(self):
+        next_index = (self.current_index + 1) % len(self.mp3_files)
+        self.play_song(next_index)
+
+    def volume_up(self):
+        self.volume = min(1.0, self.volume + 0.1)
+        pygame.mixer.music.set_volume(self.volume)
+
+    def volume_down(self):
+        self.volume = max(0.0, self.volume - 0.1)
+        pygame.mixer.music.set_volume(self.volume)
+
     def control_loop(self):
-        # Set up non-blocking input
         old_settings = termios.tcgetattr(sys.stdin)
         try:
             tty.setcbreak(sys.stdin.fileno())
@@ -135,47 +144,42 @@ class MusicPlayer:
             with Live(self.get_progress_panel(), refresh_per_second=4) as live:
                 while True:
                     if not pygame.mixer.music.get_busy() and self.status == PlayerStatus.PLAYING:
-                        # Auto-play next song
-                        next_index = (self.current_index + 1) % len(self.mp3_files)
-                        self.play_song(next_index)
+                        self.play_next_song()
                         live.update(self.get_progress_panel())
 
                     if self.is_data_ready():
-                        key = sys.stdin.read(1).upper()
+                        command = sys.stdin.read(1).upper()
                         
-                        if key == "P":
+                        if command == "P":
                             if self.status == PlayerStatus.PAUSED:
                                 pygame.mixer.music.unpause()
                                 self.status = PlayerStatus.PLAYING
-                                # Adjust total paused duration
+                                # A calculation of duration time to for not going forward of loading bar
                                 self.total_paused_duration += time.time() - self.paused_time
                             elif self.status == PlayerStatus.PLAYING:
                                 pygame.mixer.music.pause()
                                 self.status = PlayerStatus.PAUSED
                                 self.paused_time = time.time()
                         
-                        elif key == "S":
+                        elif command == "S":
                             pygame.mixer.music.stop()
                             self.status = PlayerStatus.STOPPED
                             return
 
-                        elif key == "N":
-                            next_index = (self.current_index + 1) % len(self.mp3_files)
-                            self.play_song(next_index)
+                        elif command == "N":
+                            self.play_next_song()
 
-                        elif key == "B":
+                        elif command == "B":
                             prev_index = (self.current_index - 1) % len(self.mp3_files)
                             self.play_song(prev_index)
 
-                        elif key == "+":
-                            self.volume = min(1.0, self.volume + 0.1)
-                            pygame.mixer.music.set_volume(self.volume)
+                        elif command == "+":
+                            self.volume_up()
 
-                        elif key == "-":
-                            self.volume = max(0.0, self.volume - 0.1)
-                            pygame.mixer.music.set_volume(self.volume)
+                        elif command == "-":
+                            self.volume_down()
 
-                        elif key == "Q":
+                        elif command == "Q":
                             pygame.mixer.music.stop()
                             return "QUIT"
                     
@@ -219,6 +223,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         # Reset terminal settings if interrupted
         try:
+            # If terminal recieves weird input , its a retry
             termios.tcsetattr(sys.stdin, termios.TCSADRAIN, termios.tcgetattr(sys.stdin))
         except:
             pass
